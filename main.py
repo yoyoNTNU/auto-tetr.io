@@ -6,13 +6,13 @@ import pyautogui
 import time
 
 TETROMINO_COLORS = {
-    "L": ([10, 170, 170], [19, 255, 255]),  # 橙色
-    "O": ([20, 170, 170], [35, 255, 255]),  # 黃色
-    "S": ([36, 170, 170], [60, 255, 255]),  # 綠色
-    "I": ([70, 170, 170], [100, 255, 255]),  # 青色
-    "J": ([105, 140, 140], [125, 255, 255]),  # 藍色
-    "T": ([140, 100, 100], [160, 255, 255]),  # 紫色
-    "Z": ([170, 180, 180], [200, 255, 255]),  # 紅色
+    "L": ([10, 0, 0], [19, 255, 255]),  # 橙色
+    "O": ([20, 0, 0], [35, 255, 255]),  # 黃色
+    "S": ([36, 0, 0], [60, 255, 255]),  # 綠色
+    "I": ([70, 0, 0], [100, 255, 255]),  # 青色
+    "J": ([105, 0, 0], [125, 255, 255]),  # 藍色
+    "T": ([140, 0, 0], [160, 255, 255]),  # 紫色
+    "Z": ([170, 0, 0], [200, 255, 255]),  # 紅色
 }
 
 TETROMINOS = {
@@ -45,9 +45,24 @@ def capture_game_region():
     return frame
 
 
-def capture_next_block_region():
+def capture_current_block_region():
     # 取得遊戲畫面 (座標需要手動調整)
     x, y, width, height = 926, 145, 35, 35  # 這裡的座標需根據你的螢幕調整
+    screenshot = pyautogui.screenshot(region=(x, y, width, height))
+
+    # 轉換為 OpenCV 格式
+    frame = np.array(screenshot)
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    # cv2.imshow("Captured Region", frame)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+
+    return frame
+
+
+def capture_next_block_region():
+    # 取得遊戲畫面 (座標需要手動調整)
+    x, y, width, height = 1240, 260, 20, 20  # 這裡的座標需根據你的螢幕調整
     screenshot = pyautogui.screenshot(region=(x, y, width, height))
 
     # 轉換為 OpenCV 格式
@@ -68,7 +83,7 @@ def detect_blocks(frame):
 
     board = np.zeros((rows, cols), dtype=int)
 
-    for row in range(5,rows):
+    for row in range(0,rows):
         for col in range(cols):
             x, y = int(col * block_size), int(row * block_size)
             cell = binary[y:y + int(block_size), x:x + int(block_size)]  # 確保索引是整數
@@ -103,7 +118,7 @@ def check_color(frame):
     return None  # 沒有匹配的顏色
 
 
-def get_next_tetrominos(frame):
+def get_tetrominos(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     cell = gray[0:int(block_size), 0:int(block_size)]
     if np.mean(cell) < 200:  # 判斷有方塊（這裡根據像素亮度設定閾值）
@@ -182,11 +197,12 @@ def calculate_score(board, is_need_pos=True, position=(), is_print_board=False):
     else:
         temp_board = board.copy()
 
+    # 1. 高度懲罰
     height_penalty = 0
-    for row in range(5, rows):
+    for row in range(0, rows):
         for col in range(0, cols):
             if temp_board[row, col] == 1:
-                height_penalty += (rows - row)  # 懲罰高處
+                height_penalty += (rows - row)
                 break
 
     # 3. 計算下方空洞
@@ -198,7 +214,7 @@ def calculate_score(board, is_need_pos=True, position=(), is_print_board=False):
                 while row + k < rows and temp_board[row + k, col] == 0:
                     hole_area += 1
                     k += 1
-    hole_penalty = hole_area * 2  # 空洞越多懲罰越大
+    hole_penalty = hole_area * 8  # 空洞越多懲罰越大
 
     base_area = 0
     for col in range(cols):
@@ -212,35 +228,44 @@ def calculate_score(board, is_need_pos=True, position=(), is_print_board=False):
     for row in range(rows):
         if np.all(temp_board[row, :] == 1):
             completed_lines += 1
-    line_clear_bonus = completed_lines * 10  # 清除行的獎勳
+    line_clear_bonus = completed_lines * 15 - 5  # 清除行的獎勳
 
     # 結合所有標準：得分 = 高度懲罰 + 缺口懲罰 + 表面懲罰 - 消行獎勳
     score = - height_penalty - hole_penalty + line_clear_bonus + base_bonus
     if is_print_board:
         print(temp_board)
 
-    return score
+    return score, temp_board
 
 
-def find_best_position(board, tetromino):
+def find_best_position(board, tetromino, next_tetromino=[]):
     max_score = -100000
     pos = generate_all_positions(board, tetromino)
-    sco = []
     if len(pos) == 0:
         return None
     best_pos = pos[0]
     for p in pos:
-        s = calculate_score(board, True, p)
-        sco.append(s)
-        if s > max_score:
-            max_score = s
-            best_pos = p
-        elif s == max_score:
-            x = int(random.random() * 1523)
-            if x % 2 == 1:
+        s, temp = calculate_score(board, True, p)
+        if len(next_tetromino) != 0:
+            next_pos = generate_all_positions(temp, next_tetromino)
+            for next_p in next_pos:
+                ss, _ = calculate_score(temp, True, next_p)
+                if ss > max_score:
+                    max_score = ss
+                    best_pos = p
+                elif ss == max_score:
+                    x = int(random.random() * 1523)
+                    if x % 2 == 1:
+                        best_pos = p
+        else:
+            if s > max_score:
+                max_score = s
                 best_pos = p
+            elif s == max_score:
+                x = int(random.random() * 1523)
+                if x % 2 == 1:
+                    best_pos = p
     # print("choose score:", calculate_score(board,True, best_pos, True))
-    # print("max score:", max(sco))
     return best_pos
 
 
@@ -268,25 +293,31 @@ def simulate_move(position):
     time.sleep(0.1)
     # 使用空白鍵直接下落到底部
     pyautogui.press('space')  # 模擬空白鍵快速下落
-    time.sleep(0.1)  # 等待一會
 
-
+see = 2
 while True:
-    time.sleep(0.5)
     # 捕捉當前遊戲畫面
     f = capture_game_region()
 
     # 將畫面轉換為佔用矩陣
     b = detect_blocks(f)
-    fb = capture_next_block_region()
+    fb = capture_current_block_region()
 
-    tetromino_name = get_next_tetrominos(fb)
+    tetromino_name = get_tetrominos(fb)
     if not tetromino_name:
         continue
     t = TETROMINOS[tetromino_name]
+    t2 = []
+
+    if see == 2:
+        fb2 = capture_next_block_region()
+        next_tetromino_name = get_tetrominos(fb2)
+        if not next_tetromino_name:
+            continue
+        t2 = TETROMINOS[next_tetromino_name]
 
     # 計算最佳放置位置
-    best_position = find_best_position(b, t)
+    best_position = find_best_position(b, t, t2)
     # print(best_position)
     if not best_position:
         continue
