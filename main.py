@@ -88,7 +88,7 @@ def detect_blocks(frame):
             x, y = int(col * block_size), int(row * block_size)
             cell = binary[y:y + int(block_size), x:x + int(block_size)]  # 確保索引是整數
 
-            if np.mean(cell) >= 200:  # 判斷是否有方塊
+            if np.mean(cell) >= 180:  # 判斷是否有方塊
                 board[row, col] = 1
 
     return board
@@ -180,6 +180,25 @@ def generate_all_positions(board, tetromino):
     return positions
 
 
+def line_clear(board):
+    new_board = board.copy()
+
+    # 找到所有已填滿的行
+    full_rows = [row for row in range(rows) if np.all(new_board[row, :] == 1)]
+
+    # 計算清除的行數
+    lines_cleared = len(full_rows)
+
+    # 如果有行需要清除
+    if lines_cleared > 0:
+        # 只保留未消除的行
+        remaining_rows = [row for row in range(rows) if row not in full_rows]
+        new_board[:lines_cleared, :] = 0
+        new_board[lines_cleared:, :] = new_board[remaining_rows, :]
+
+    return new_board, lines_cleared
+
+
 def calculate_score(board, is_need_pos=True, position=(), is_print_board=False):
     if is_need_pos:
         # 克隆當前的遊戲板
@@ -197,41 +216,60 @@ def calculate_score(board, is_need_pos=True, position=(), is_print_board=False):
     else:
         temp_board = board.copy()
 
+    # 0. 計算即將形成的消行
+    new_board, completed_lines = line_clear(temp_board)
+    line_clear_bonus = completed_lines * 40 - 5  # 清除行的獎勳
+    print(new_board)
+
     # 1. 高度懲罰
     height_penalty = 0
     for row in range(0, rows):
         for col in range(0, cols):
-            if temp_board[row, col] == 1:
+            if new_board[row, col] == 1:
                 height_penalty += (rows - row)
                 break
 
-    # 3. 計算下方空洞
+    # 2. 平坦度懲罰
+    heights = np.zeros(board.shape[1], dtype=int)
+
+    for col in range(board.shape[1]):
+        column_data = board[:, col]
+        non_zero_indices = np.where(column_data > 0)[0]
+        if len(non_zero_indices) > 0:
+            heights[col] = board.shape[0] - non_zero_indices[0]
+
+    surface_area = np.sum(np.abs(np.diff(heights)))  # 計算相鄰高度變化總和
+    surface_penalty = surface_area * 2
+
+    # 3. 下方缺口懲罰
     hole_area = 0
     for col in range(cols):
-        for row in range(rows - 1):
-            if temp_board[row, col] == 1:
-                k = 1
-                while row + k < rows and temp_board[row + k, col] == 0:
-                    hole_area += 1
-                    k += 1
+        found_block = False  # 是否已經找到方塊
+        for row in range(rows):
+            if new_board[row, col] == 1:
+                found_block = True  # 找到方塊後才開始計算
+            elif new_board[row, col] == 0 and found_block:
+                hole_area += 1  # 只有當上方有方塊時，這個 0 才是洞
     hole_penalty = hole_area * 8  # 空洞越多懲罰越大
 
+    # 4. 基底獎勵
     base_area = 0
     for col in range(cols):
         for row in range(rows):
-            if temp_board[row, col] == 1 and (row == 19 or temp_board[row + 1, col] == 1):
+            if new_board[row, col] == 1 and (row == 19 or new_board[row + 1, col] == 1):
                 base_area += 1
-    base_bonus = base_area  # 有地基要獎勵
+    base_bonus = base_area * 2  # 有地基要獎勵
 
-    # 4. 計算即將形成的消行數量
-    completed_lines = 0
+    # 5. 靠牆獎勵
+    wall = 0
     for row in range(rows):
-        if np.all(temp_board[row, :] == 1):
-            completed_lines += 1
-    line_clear_bonus = completed_lines * 15 - 5  # 清除行的獎勳
+        wall += new_board[row, 0] + new_board[row, cols - 1]
+    wall_bonus = wall * 0.05
 
-    # 結合所有標準：得分 = 高度懲罰 + 缺口懲罰 + 表面懲罰 - 消行獎勳
-    score = - height_penalty - hole_penalty + line_clear_bonus + base_bonus
+    # 結合所有標準：得分 = - 高度懲罰 - 平坦度懲罰 - 下方缺口懲罰 + 消行獎勵 + 靠牆獎勵
+    score = - height_penalty - surface_penalty - hole_penalty + line_clear_bonus + base_bonus + wall_bonus
+    print("score:", score, - height_penalty, - surface_penalty, - hole_penalty, line_clear_bonus, base_bonus, wall_bonus)
+    print("hole:", hole_area, "line:", completed_lines, "base:", base_area, "wall:", wall, "surface:", surface_area)
     if is_print_board:
         print(temp_board)
 
@@ -245,6 +283,7 @@ def find_best_position(board, tetromino, next_tetromino=[]):
         return None
     best_pos = pos[0]
     for p in pos:
+        print(p)
         s, temp = calculate_score(board, True, p)
         if len(next_tetromino) != 0:
             next_pos = generate_all_positions(temp, next_tetromino)
@@ -265,7 +304,8 @@ def find_best_position(board, tetromino, next_tetromino=[]):
                 x = int(random.random() * 1523)
                 if x % 2 == 1:
                     best_pos = p
-    # print("choose score:", calculate_score(board,True, best_pos, True))
+    calculate_score(board,True, best_pos, False)
+    # print("choose score:", a)
     return best_pos
 
 
@@ -294,7 +334,7 @@ def simulate_move(position):
     # 使用空白鍵直接下落到底部
     pyautogui.press('space')  # 模擬空白鍵快速下落
 
-see = 2
+see = 1
 while True:
     # 捕捉當前遊戲畫面
     f = capture_game_region()
@@ -316,6 +356,7 @@ while True:
             continue
         t2 = TETROMINOS[next_tetromino_name]
 
+    print(b)
     # 計算最佳放置位置
     best_position = find_best_position(b, t, t2)
     # print(best_position)
