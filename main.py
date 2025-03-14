@@ -75,6 +75,21 @@ def capture_next_block_region():
     return frame
 
 
+def capture_store_block_region():
+    # 取得遊戲畫面 (座標需要手動調整)
+    x, y, width, height = 700, 260, 20, 20  # 這裡的座標需根據你的螢幕調整
+    screenshot = pyautogui.screenshot(region=(x, y, width, height))
+
+    # 轉換為 OpenCV 格式
+    frame = np.array(screenshot)
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    # cv2.imshow("Captured Region", frame)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+
+    return frame
+
+
 def detect_blocks(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     _, binary = cv2.threshold(gray, 25, 255, cv2.THRESH_BINARY)  # 調整閾值以適應 TETR.IO 配色
@@ -219,7 +234,7 @@ def calculate_score(board, is_need_pos=True, position=(), is_print_board=False):
     # 0. 計算即將形成的消行
     new_board, completed_lines = line_clear(temp_board)
     line_clear_bonus = completed_lines * 40 - 5  # 清除行的獎勳
-    print(new_board)
+    # print(new_board)
 
     # 1. 高度懲罰
     height_penalty = 0
@@ -250,7 +265,7 @@ def calculate_score(board, is_need_pos=True, position=(), is_print_board=False):
                 found_block = True  # 找到方塊後才開始計算
             elif new_board[row, col] == 0 and found_block:
                 hole_area += 1  # 只有當上方有方塊時，這個 0 才是洞
-    hole_penalty = hole_area * 8  # 空洞越多懲罰越大
+    hole_penalty = hole_area * 15  # 空洞越多懲罰越大
 
     # 4. 基底獎勵
     base_area = 0
@@ -268,8 +283,8 @@ def calculate_score(board, is_need_pos=True, position=(), is_print_board=False):
 
     # 結合所有標準：得分 = - 高度懲罰 - 平坦度懲罰 - 下方缺口懲罰 + 消行獎勵 + 靠牆獎勵
     score = - height_penalty - surface_penalty - hole_penalty + line_clear_bonus + base_bonus + wall_bonus
-    print("score:", score, - height_penalty, - surface_penalty, - hole_penalty, line_clear_bonus, base_bonus, wall_bonus)
-    print("hole:", hole_area, "line:", completed_lines, "base:", base_area, "wall:", wall, "surface:", surface_area)
+    # print("score:", score, - height_penalty, - surface_penalty, - hole_penalty, line_clear_bonus, base_bonus, wall_bonus)
+    # print("hole:", hole_area, "line:", completed_lines, "base:", base_area, "wall:", wall, "surface:", surface_area)
     if is_print_board:
         print(temp_board)
 
@@ -283,7 +298,7 @@ def find_best_position(board, tetromino, next_tetromino=[]):
         return None
     best_pos = pos[0]
     for p in pos:
-        print(p)
+        # print(p)
         s, temp = calculate_score(board, True, p)
         if len(next_tetromino) != 0:
             next_pos = generate_all_positions(temp, next_tetromino)
@@ -304,13 +319,12 @@ def find_best_position(board, tetromino, next_tetromino=[]):
                 x = int(random.random() * 1523)
                 if x % 2 == 1:
                     best_pos = p
-    calculate_score(board,True, best_pos, False)
     # print("choose score:", a)
-    return best_pos
+    return best_pos, max_score
 
 
 def simulate_move(position):
-
+    global can_store
     _, target_x, target_y,  rotate_count = position
     # 旋轉
     c = 0
@@ -334,7 +348,9 @@ def simulate_move(position):
     # 使用空白鍵直接下落到底部
     pyautogui.press('space')  # 模擬空白鍵快速下落
 
-see = 1
+
+see = 2
+can_store = True
 while True:
     # 捕捉當前遊戲畫面
     f = capture_game_region()
@@ -348,6 +364,16 @@ while True:
         continue
     t = TETROMINOS[tetromino_name]
     t2 = []
+    ts = None
+
+    if can_store:
+        fs = capture_store_block_region()
+        store_tetrmino_name = get_tetrominos(fs)
+        if not store_tetrmino_name:
+            pyautogui.press('c')
+            can_store = False
+            continue
+        ts = TETROMINOS[store_tetrmino_name]
 
     if see == 2:
         fb2 = capture_next_block_region()
@@ -356,11 +382,24 @@ while True:
             continue
         t2 = TETROMINOS[next_tetromino_name]
 
-    print(b)
+
+
+    # print(b)
     # 計算最佳放置位置
-    best_position = find_best_position(b, t, t2)
+    best_position_now, max_score_now = find_best_position(b, t, t2)
+    if can_store:
+        best_position_s, max_score_s = find_best_position(b, ts, t2)
+        if max_score_now >= max_score_s:
+            best_position = best_position_now
+        else:
+            best_position = best_position_s
+            pyautogui.press('c')
+    else:
+        best_position = best_position_now
+
     # print(best_position)
     if not best_position:
         continue
     simulate_move(best_position)
+    can_store = True
     # print("current score:", calculate_score(b, False))
