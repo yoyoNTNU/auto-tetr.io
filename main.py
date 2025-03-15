@@ -324,13 +324,12 @@ def find_best_position(board, tetromino, next_tetromino=[]):
 
 
 def simulate_move(position):
-    global can_store
     _, target_x, target_y,  rotate_count = position
     # 旋轉
     c = 0
     while c < rotate_count:
         pyautogui.press('z')
-        time.sleep(0.1)
+        time.sleep(0.05)
         c += 1
     c = 0
     while c < 10:
@@ -341,10 +340,10 @@ def simulate_move(position):
     # 右移，直到達到目標位置
     while current_x < target_x:
         pyautogui.press('right')  # 持續按下右箭頭
-        time.sleep(0.1)  # 等待一會
+        time.sleep(0.05)  # 等待一會
         current_x += 1  # 模擬右移一格
 
-    time.sleep(0.1)
+    time.sleep(0.05)
     # 使用空白鍵直接下落到底部
     pyautogui.press('space')  # 模擬空白鍵快速下落
 
@@ -353,49 +352,56 @@ see = 2
 can_store = True
 while True:
     # 捕捉當前遊戲畫面
-    f = capture_game_region()
-
+    board_frame = capture_game_region()
     # 將畫面轉換為佔用矩陣
-    b = detect_blocks(f)
-    fb = capture_current_block_region()
+    occupancy_matrix = detect_blocks(board_frame)
 
-    tetromino_name = get_tetrominos(fb)
-    if not tetromino_name:
+    # 捕捉目前方塊畫面
+    now_block_frame = capture_current_block_region()
+
+    now_tetromino_name = get_tetrominos(now_block_frame)
+    if not now_tetromino_name:
         continue
-    t = TETROMINOS[tetromino_name]
-    t2 = []
-    ts = None
+    now_tetromino = TETROMINOS[now_tetromino_name]
+    next_tetromino = []
+    hold_tetromino = None
 
     if can_store:
-        fs = capture_store_block_region()
-        store_tetrmino_name = get_tetrominos(fs)
+        hold_block_frame = capture_store_block_region()
+        store_tetrmino_name = get_tetrominos(hold_block_frame)
         if not store_tetrmino_name:
             pyautogui.press('c')
             can_store = False
             continue
-        ts = TETROMINOS[store_tetrmino_name]
+        hold_tetromino = TETROMINOS[store_tetrmino_name]
 
     if see == 2:
-        fb2 = capture_next_block_region()
-        next_tetromino_name = get_tetrominos(fb2)
+        next_block_frame = capture_next_block_region()
+        next_tetromino_name = get_tetrominos(next_block_frame)
         if not next_tetromino_name:
             continue
-        t2 = TETROMINOS[next_tetromino_name]
-
-
+        next_tetromino = TETROMINOS[next_tetromino_name]
 
     # print(b)
     # 計算最佳放置位置
-    best_position_now, max_score_now = find_best_position(b, t, t2)
+    best_position_now_next, max_score_now_next = find_best_position(occupancy_matrix, now_tetromino, next_tetromino)
     if can_store:
-        best_position_s, max_score_s = find_best_position(b, ts, t2)
-        if max_score_now >= max_score_s:
-            best_position = best_position_now
+        best_position_hold_next, max_score_hold_next = find_best_position(occupancy_matrix, hold_tetromino, next_tetromino)
+        best_position_now_hold, max_score_now_hold = find_best_position(occupancy_matrix, now_tetromino, hold_tetromino)
+        best_position_hold_now, max_score_hold_now = find_best_position(occupancy_matrix, hold_tetromino, now_tetromino)
+
+        if max_score_now_next >= max_score_hold_next and max_score_now_next >= max_score_now_hold and max_score_now_next >= max_score_hold_now:
+            best_position = best_position_now_next
+        elif max_score_hold_next >= max_score_now_next and max_score_hold_next >= max_score_now_hold and max_score_hold_next >= max_score_hold_now:
+            best_position = best_position_hold_next
+            pyautogui.press('c')
+        elif max_score_now_hold >= max_score_now_next and max_score_now_hold >= max_score_hold_next and max_score_now_hold >= max_score_hold_now:
+            best_position = best_position_now_hold
         else:
-            best_position = best_position_s
+            best_position = best_position_hold_now
             pyautogui.press('c')
     else:
-        best_position = best_position_now
+        best_position = best_position_now_next
 
     # print(best_position)
     if not best_position:
